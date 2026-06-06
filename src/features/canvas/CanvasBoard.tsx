@@ -17,7 +17,7 @@ import { resolveEmbedDraft } from '../../domain/embeds';
 import {
   clampFrame,
   normalizeRotation,
-  resizeFrameFromDelta,
+  resizeFrameFromRotatedWorldDelta,
   screenToWorld,
   transformViewportAt,
   type CanvasViewport,
@@ -75,6 +75,7 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
   const [items, setItems] = useState<CanvasItem[]>([]);
   const [draft, setDraft] = useState<DraftBox | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
   const [authorName, setAuthorName] = useState(identity.name);
@@ -100,8 +101,6 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
     () => items.find((item) => item.id === selectedId) ?? null,
     [items, selectedId]
   );
-  const canEditSelected =
-    !!selectedItem && selectedItem.ownerClientId === identity.clientId;
 
   useEffect(() => {
     let alive = true;
@@ -168,6 +167,27 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
       }
     },
     [rememberSavedItem, repository]
+  );
+
+  const deleteItem = useCallback(
+    async (item: CanvasItem) => {
+      try {
+        await repository.deleteItem(item.id);
+        setItems((current) =>
+          current.filter((currentItem) => currentItem.id !== item.id)
+        );
+        setSelectedId((current) => (current === item.id ? null : current));
+        setEditingId((current) => (current === item.id ? null : current));
+        setDirtyIds((current) => {
+          const next = new Set(current);
+          next.delete(item.id);
+          return next;
+        });
+      } catch (caught) {
+        setError(messageFromError(caught));
+      }
+    },
+    [repository]
   );
 
   useEffect(() => {
@@ -335,34 +355,23 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
     }
   }, [saveItem, selectedItem]);
 
-  const deleteSelected = useCallback(async () => {
-    if (!selectedItem || !canEditSelected) {
-      return;
-    }
-
-    try {
-      await repository.deleteItem(selectedItem.id);
-      setItems((current) =>
-        current.filter((item) => item.id !== selectedItem.id)
-      );
-      setSelectedId(null);
-    } catch (caught) {
-      setError(messageFromError(caught));
-    }
-  }, [canEditSelected, repository, selectedItem]);
-
   const finishTextEdit = useCallback(
     async (item: CanvasItem) => {
       const trimmed = editingText.trim();
       setEditingId(null);
 
-      if (!trimmed || trimmed === item.contentText) {
+      if (!trimmed) {
+        await deleteItem(item);
+        return;
+      }
+
+      if (trimmed === item.contentText) {
         return;
       }
 
       await saveItem(item, { draft: resolveEmbedDraft(trimmed) });
     },
-    [editingText, saveItem]
+    [deleteItem, editingText, saveItem]
   );
 
   const commitName = useCallback(() => {
@@ -510,11 +519,20 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
               item={item}
               selected={item.id === selectedId}
               owned={item.ownerClientId === identity.clientId}
+              showDelete={
+                item.ownerClientId === identity.clientId &&
+                (item.id === selectedId || item.id === hoveredId)
+              }
               editing={item.id === editingId}
               editingText={editingText}
               moveMode={heldKeys.move}
               onEditingTextChange={setEditingText}
               onSelect={() => setSelectedId(item.id)}
+              onHoverChange={(hovering) =>
+                setHoveredId((current) =>
+                  hovering ? item.id : current === item.id ? null : current
+                )
+              }
               onStartEdit={() => {
                 if (item.ownerClientId === identity.clientId) {
                   setSelectedId(item.id);
@@ -523,6 +541,7 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
                 }
               }}
               onFinishEdit={() => void finishTextEdit(item)}
+              onDelete={() => void deleteItem(item)}
               onStartDrag={(event, mode) => {
                 event.stopPropagation();
                 if (item.ownerClientId !== identity.clientId) {
@@ -562,17 +581,6 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
         </div>
       </div>
 
-      {selectedItem && canEditSelected ? (
-        <button
-          className="delete-button"
-          type="button"
-          aria-label="Delete item"
-          onClick={deleteSelected}
-        >
-          Delete
-        </button>
-      ) : null}
-
       {selectedItem && dirtyIds.has(selectedItem.id) ? (
         <button className="save-button" type="button" onClick={saveSelected}>
           Save
@@ -591,25 +599,31 @@ function CanvasItemBox({
   item,
   selected,
   owned,
+  showDelete,
   editing,
   editingText,
   moveMode,
   onEditingTextChange,
   onSelect,
+  onHoverChange,
   onStartEdit,
   onFinishEdit,
+  onDelete,
   onStartDrag
 }: {
   item: CanvasItem;
   selected: boolean;
   owned: boolean;
+  showDelete: boolean;
   editing: boolean;
   editingText: string;
   moveMode: boolean;
   onEditingTextChange: (value: string) => void;
   onSelect: () => void;
+  onHoverChange: (hovering: boolean) => void;
   onStartEdit: () => void;
   onFinishEdit: () => void;
+  onDelete: () => void;
   onStartDrag: (
     event: ReactPointerEvent<HTMLElement>,
     mode: Exclude<DragMode, 'pan'>
@@ -627,6 +641,8 @@ function CanvasItemBox({
         event.stopPropagation();
         onStartEdit();
       }}
+      onPointerEnter={() => onHoverChange(true)}
+      onPointerLeave={() => onHoverChange(false)}
       onPointerDown={(event) => {
         if (moveMode) {
           onStartDrag(event, 'move');
@@ -656,6 +672,19 @@ function CanvasItemBox({
       )}
       {moveMode ? <span className="item-interaction-shield" aria-hidden /> : null}
       <span className="author-tag">{item.ownerName}</span>
+      {showDelete ? (
+        <button
+          className="delete-dot"
+          type="button"
+          aria-label="Delete item"
+          title="Delete item"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete();
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+        />
+      ) : null}
       {selected && owned ? (
         <button
           className="handle transform-handle"
@@ -705,10 +734,9 @@ function frameFromDrag(
   }
 
   if (drag.transformMode !== 'rotate') {
-    return resizeFrameFromDelta(
+    return resizeFrameFromRotatedWorldDelta(
       startFrame,
-      dx,
-      dy,
+      { x: dx, y: dy },
       drag.transformMode === 'aspect-resize'
     );
   }

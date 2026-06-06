@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   CanvasRepository,
   CreateCanvasItemInput,
@@ -15,6 +15,10 @@ const identity: CanvasIdentity = {
   name: 'anu',
   cookiesToWrite: []
 };
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('CanvasBoard', () => {
   it('creates a text item by clicking the canvas and pressing Enter', async () => {
@@ -52,9 +56,50 @@ describe('CanvasBoard', () => {
 
     await screen.findByText('owned note');
     await userEvent.click(screen.getByText('owned note'));
-    await userEvent.click(screen.getByRole('button', { name: 'Delete item' }));
+    const deleteButton = screen.getByRole('button', { name: 'Delete item' });
+
+    expect(deleteButton).toHaveClass('delete-dot');
+    await userEvent.click(deleteButton);
+    await waitFor(() => expect(repository.deleteItem).toHaveBeenCalledWith('owned'));
+  });
+
+  it('shows the delete dot for an owned item while it is hovered', async () => {
+    const item = makeItem({ id: 'owned', ownerClientId: 'client-one' });
+    const repository = makeRepository([item]);
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    await screen.findByText('owned note');
+    expect(screen.queryByRole('button', { name: 'Delete item' })).not.toBeInTheDocument();
+
+    fireEvent.pointerEnter(screen.getByText('owned note').closest('article')!);
+
+    expect(screen.getByRole('button', { name: 'Delete item' })).toHaveClass(
+      'delete-dot'
+    );
+  });
+
+  it('deletes an owned item when its edited text is emptied', async () => {
+    const item = makeItem({ id: 'owned', ownerClientId: 'client-one' });
+    const repository = makeRepository([item]);
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    await screen.findByText('owned note');
+    await userEvent.dblClick(screen.getByText('owned note'));
+    await userEvent.clear(screen.getByLabelText('Edit canvas text'));
+    fireEvent.blur(screen.getByLabelText('Edit canvas text'));
 
     await waitFor(() => expect(repository.deleteItem).toHaveBeenCalledWith('owned'));
+    expect(screen.queryByText('owned note')).not.toBeInTheDocument();
+  });
+
+  it('centers display text inside text-only items', async () => {
+    const item = makeItem({ id: 'owned', ownerClientId: 'client-one' });
+    const repository = makeRepository([item]);
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    const text = await screen.findByText('owned note');
+
+    expect(text).toHaveClass('text-note');
   });
 
   it('pans the world when holding M and dragging blank canvas', async () => {
@@ -145,7 +190,80 @@ describe('CanvasBoard', () => {
     expect(repository.updated[0].input.frame?.rotation).toBeGreaterThan(0);
   });
 
+  it('grows a rotated item when resizing outward from the center', async () => {
+    const item = makeItem({
+      id: 'owned',
+      ownerClientId: 'client-one',
+      width: 240,
+      height: 120,
+      rotation: -45
+    });
+    const repository = makeRepository([item]);
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    await screen.findByText('owned note');
+    await userEvent.click(screen.getByText('owned note'));
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Transform item' }), {
+      pointerId: 1,
+      button: 0,
+      clientX: 280,
+      clientY: 180
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 1,
+      clientX: 379,
+      clientY: 166
+    });
+    fireEvent.pointerUp(window, {
+      pointerId: 1,
+      clientX: 379,
+      clientY: 166
+    });
+
+    await waitFor(() => expect(repository.updateItem).toHaveBeenCalled());
+    expect(repository.updated[0].input.frame?.width).toBeGreaterThan(240);
+    expect(repository.updated[0].input.frame?.height).toBeGreaterThan(120);
+  });
+
+  it('keeps aspect ratio when resizing a rotated item with G held', async () => {
+    const item = makeItem({
+      id: 'owned',
+      ownerClientId: 'client-one',
+      width: 240,
+      height: 120,
+      rotation: -45
+    });
+    const repository = makeRepository([item]);
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    await screen.findByText('owned note');
+    await userEvent.click(screen.getByText('owned note'));
+    fireEvent.keyDown(window, { key: 'g' });
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Transform item' }), {
+      pointerId: 1,
+      button: 0,
+      clientX: 280,
+      clientY: 180
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 1,
+      clientX: 379,
+      clientY: 166
+    });
+    fireEvent.pointerUp(window, {
+      pointerId: 1,
+      clientX: 379,
+      clientY: 166
+    });
+    fireEvent.keyUp(window, { key: 'g' });
+
+    await waitFor(() => expect(repository.updateItem).toHaveBeenCalled());
+    const frame = repository.updated[0].input.frame!;
+    expect(frame.width / frame.height).toBeCloseTo(2);
+  });
+
   it('shows a static website preview fallback when no preview endpoint is configured', async () => {
+    vi.stubEnv('VITE_LINK_PREVIEW_ENDPOINT', '');
     const item = makeItem({
       id: 'site',
       contentText: 'https://example.com/story',

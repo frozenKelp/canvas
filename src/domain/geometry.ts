@@ -92,6 +92,20 @@ export function resizeFrameFromDelta(
   });
 }
 
+export function resizeFrameFromRotatedWorldDelta(
+  frame: ItemFrame,
+  delta: Point,
+  aspectLocked: boolean
+): ItemFrame {
+  const radians = (frame.rotation * Math.PI) / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const localDx = delta.x * cos + delta.y * sin;
+  const localDy = -delta.x * sin + delta.y * cos;
+
+  return resizeFrameFromDelta(frame, localDx, localDy, aspectLocked);
+}
+
 export function normalizeRotation(rotation: number): number {
   const wrapped = rotation % 360;
   return wrapped < 0 ? wrapped + 360 : wrapped;

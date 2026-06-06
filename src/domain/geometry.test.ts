@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   clampFrame,
   resizeFrameFromDelta,
+  resizeFrameFromRotatedWorldDelta,
   screenToWorld,
   transformViewportAt,
   type CanvasViewport,
@@ -75,5 +76,62 @@ describe('canvas geometry', () => {
       width: 380,
       height: 190
     });
+  });
+
+  it('grows a rotated frame when the pointer moves outward in local space', () => {
+    const frame: ItemFrame = {
+      x: 12,
+      y: 24,
+      width: 200,
+      height: 100,
+      rotation: -45
+    };
+
+    const resized = resizeFrameFromRotatedWorldDelta(
+      frame,
+      { x: 98.99, y: -14.14 },
+      false
+    );
+
+    expect(resized.width).toBeGreaterThan(frame.width);
+    expect(resized.height).toBeGreaterThan(frame.height);
+  });
+
+  it('shrinks a rotated frame when the pointer moves inward in local space', () => {
+    const frame: ItemFrame = {
+      x: 12,
+      y: 24,
+      width: 260,
+      height: 160,
+      rotation: -45
+    };
+
+    const resized = resizeFrameFromRotatedWorldDelta(
+      frame,
+      { x: -98.99, y: 14.14 },
+      false
+    );
+
+    expect(resized.width).toBeLessThan(frame.width);
+    expect(resized.height).toBeLessThan(frame.height);
+  });
+
+  it('keeps aspect ratio when rotated resizing is locked', () => {
+    const frame: ItemFrame = {
+      x: 12,
+      y: 24,
+      width: 200,
+      height: 100,
+      rotation: -45
+    };
+
+    const resized = resizeFrameFromRotatedWorldDelta(
+      frame,
+      { x: 98.99, y: -14.14 },
+      true
+    );
+
+    expect(resized.width / resized.height).toBeCloseTo(2);
+    expect(resized.width).toBeGreaterThan(frame.width);
   });
 });

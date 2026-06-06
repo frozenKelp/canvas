@@ -6,6 +6,8 @@ type ItemContentProps = {
   item: CanvasItem;
 };
 
+const PREVIEW_TIMEOUT_MS = 6_000;
+
 export function ItemContent({ item }: ItemContentProps) {
   const caption = getCaption(item);
 
@@ -59,7 +61,7 @@ export function ItemContent({ item }: ItemContentProps) {
     return <WebsitePreview item={item} caption={caption} />;
   }
 
-  return <p>{item.contentText}</p>;
+  return <p className="text-note">{item.contentText}</p>;
 }
 
 type LinkPreview = {
@@ -94,31 +96,45 @@ function WebsitePreview({
 
   useEffect(() => {
     const controller = new AbortController();
+    const failPreview = () =>
+      setPreviewState({
+        sourceUrl: primaryUrl,
+        preview: null,
+        failed: true
+      });
 
     if (!requestUrl || !primaryUrl) {
       return;
     }
 
+    const timeoutId = window.setTimeout(() => {
+      if (!controller.signal.aborted) {
+        controller.abort();
+        failPreview();
+      }
+    }, PREVIEW_TIMEOUT_MS);
+
     fetch(requestUrl, { signal: controller.signal })
       .then((response) => (response.ok ? response.json() : Promise.reject()))
-      .then((data: LinkPreview) =>
+      .then((data: LinkPreview) => {
+        window.clearTimeout(timeoutId);
         setPreviewState({
           sourceUrl: primaryUrl,
           preview: data,
           failed: false
-        })
-      )
+        });
+      })
       .catch(() => {
+        window.clearTimeout(timeoutId);
         if (!controller.signal.aborted) {
-          setPreviewState({
-            sourceUrl: primaryUrl,
-            preview: null,
-            failed: true
-          });
+          failPreview();
         }
       });
 
-    return () => controller.abort();
+    return () => {
+      window.clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, [primaryUrl, requestUrl]);
 
   const host = hostLabel(primaryUrl);
