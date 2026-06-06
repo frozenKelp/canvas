@@ -4,8 +4,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent
+  type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent
 } from 'react';
 import type {
   CanvasRepository,
@@ -15,7 +17,9 @@ import { resolveEmbedDraft } from '../../domain/embeds';
 import {
   clampFrame,
   normalizeRotation,
+  resizeFrameFromDelta,
   screenToWorld,
+  transformViewportAt,
   type CanvasViewport,
   type ItemFrame,
   type Point
@@ -43,10 +47,18 @@ type DraftBox = {
   frame: ItemFrame;
 };
 
-type DragMode = 'pan' | 'move' | 'resize' | 'rotate';
+type HeldKeys = {
+  move: boolean;
+  rotate: boolean;
+  aspect: boolean;
+};
+
+type DragMode = 'pan' | 'move' | 'transform';
+type TransformMode = 'free-resize' | 'aspect-resize' | 'rotate';
 
 type DragState = {
   mode: DragMode;
+  transformMode?: TransformMode;
   itemId?: string;
   startScreen: Point;
   startFrame?: ItemFrame;
@@ -56,6 +68,8 @@ type DragState = {
 
 const EMPTY_DRAFT_TEXT = 'paste a link or write anything';
 const DEFAULT_BOX = { width: 320, height: 96 };
+const GRID_SIZE = 28;
+const WHEEL_ZOOM_SPEED = 0.0015;
 
 export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
   const [items, setItems] = useState<CanvasItem[]>([]);
@@ -69,9 +83,16 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
     y: 0,
     zoom: 1
   });
+  const [heldKeys, setHeldKeys] = useState<HeldKeys>({
+    move: false,
+    rotate: false,
+    aspect: false
+  });
   const [dirtyIds, setDirtyIds] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const viewportRef = useRef(viewport);
+  const heldKeysRef = useRef(heldKeys);
   const clickStartRef = useRef<Point | null>(null);
   const draftRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -108,9 +129,69 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
     draftRef.current?.focus();
   }, [draft]);
 
+  useEffect(() => {
+    viewportRef.current = viewport;
+  }, [viewport]);
+
+  useEffect(() => {
+    heldKeysRef.current = heldKeys;
+  }, [heldKeys]);
+
   const markDirty = useCallback((id: string) => {
     setDirtyIds((current) => new Set(current).add(id));
   }, []);
+
+  const setHeldKey = useCallback((key: keyof HeldKeys, pressed: boolean) => {
+    const next = { ...heldKeysRef.current, [key]: pressed };
+    heldKeysRef.current = next;
+    setHeldKeys(next);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (isTypingTarget(event.target)) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+
+      if (key === 'm') {
+        setHeldKey('move', true);
+      }
+
+      if (key === 'r') {
+        setHeldKey('rotate', true);
+      }
+
+      if (key === 'g') {
+        setHeldKey('aspect', true);
+      }
+    };
+
+    const onKeyUp = (event: globalThis.KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+
+      if (key === 'm') {
+        setHeldKey('move', false);
+      }
+
+      if (key === 'r') {
+        setHeldKey('rotate', false);
+      }
+
+      if (key === 'g') {
+        setHeldKey('aspect', false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [setHeldKey]);
 
   useEffect(() => {
     const onPointerMove = (event: PointerEvent) => {
@@ -125,8 +206,12 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
       if (drag.mode === 'pan' && drag.startViewport) {
         setViewport({
           ...drag.startViewport,
-          x: drag.startViewport.x - (point.x - drag.startScreen.x) / viewport.zoom,
-          y: drag.startViewport.y - (point.y - drag.startScreen.y) / viewport.zoom
+          x:
+            drag.startViewport.x -
+            (point.x - drag.startScreen.x) / drag.startViewport.zoom,
+          y:
+            drag.startViewport.y -
+            (point.y - drag.startScreen.y) / drag.startViewport.zoom
         });
         return;
       }
@@ -135,7 +220,7 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
         return;
       }
 
-      const nextFrame = frameFromDrag(drag, point, viewport);
+      const nextFrame = frameFromDrag(drag, point, viewportRef.current);
       setItems((current) =>
         current.map((item) =>
           item.id === drag.itemId ? { ...item, ...nextFrame } : item
@@ -155,7 +240,7 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
     };
-  }, [markDirty, viewport]);
+  }, [markDirty]);
 
   const saveDraft = useCallback(async () => {
     const trimmed = draft?.text.trim();
@@ -265,19 +350,30 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
       return;
     }
 
-    clickStartRef.current = { x: event.clientX, y: event.clientY };
-
-    if (event.button === 1 || event.altKey || event.metaKey) {
+    if (
+      heldKeysRef.current.move ||
+      event.button === 1 ||
+      event.altKey ||
+      event.metaKey
+    ) {
       dragRef.current = {
         mode: 'pan',
         startScreen: { x: event.clientX, y: event.clientY },
-        startViewport: viewport
+        startViewport: viewportRef.current
       };
+      clickStartRef.current = null;
+      return;
     }
+
+    clickStartRef.current = { x: event.clientX, y: event.clientY };
   };
 
   const onSurfacePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!isBlankCanvasTarget(event.target) || dragRef.current) {
+    if (
+      !isBlankCanvasTarget(event.target) ||
+      dragRef.current ||
+      heldKeysRef.current.move
+    ) {
       return;
     }
 
@@ -302,6 +398,23 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
     });
   };
 
+  const onSurfaceWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!heldKeysRef.current.move) {
+      return;
+    }
+
+    const nextZoom =
+      viewportRef.current.zoom * Math.exp(-event.deltaY * WHEEL_ZOOM_SPEED);
+
+    setViewport((current) =>
+      transformViewportAt(
+        current,
+        { x: event.clientX, y: event.clientY },
+        nextZoom
+      )
+    );
+  };
+
   const onDraftKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
@@ -316,9 +429,16 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
   const worldStyle = {
     transform: `translate(${-viewport.x * viewport.zoom}px, ${-viewport.y * viewport.zoom}px) scale(${viewport.zoom})`
   };
+  const surfaceStyle = {
+    backgroundPosition: `${-viewport.x * viewport.zoom}px ${-viewport.y * viewport.zoom}px`,
+    backgroundSize: `${GRID_SIZE * viewport.zoom}px ${GRID_SIZE * viewport.zoom}px`
+  };
 
   return (
-    <main className="canvas-app" aria-label="Canvas">
+    <main
+      className={`canvas-app ${heldKeys.move ? 'is-move-mode' : ''}`}
+      aria-label="Canvas"
+    >
       <h1 className="canvas-wordmark">Canvas</h1>
       <label className="nameplate">
         <span>name:</span>
@@ -339,8 +459,10 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
       <div
         className="canvas-surface"
         data-testid="canvas-surface"
+        style={surfaceStyle}
         onPointerDown={onSurfacePointerDown}
         onPointerUp={onSurfacePointerUp}
+        onWheel={onSurfaceWheel}
       >
         <div className="canvas-world" style={worldStyle}>
           {items.map((item) => (
@@ -351,6 +473,7 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
               owned={item.ownerClientId === identity.clientId}
               editing={item.id === editingId}
               editingText={editingText}
+              moveMode={heldKeys.move}
               onEditingTextChange={setEditingText}
               onSelect={() => setSelectedId(item.id)}
               onStartEdit={() => {
@@ -368,7 +491,12 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
                   return;
                 }
                 setSelectedId(item.id);
-                dragRef.current = createDragState(event, mode, item);
+                dragRef.current = createDragState(
+                  event,
+                  mode,
+                  item,
+                  transformModeFromKeys(heldKeysRef.current)
+                );
               }}
             />
           ))}
@@ -426,6 +554,7 @@ function CanvasItemBox({
   owned,
   editing,
   editingText,
+  moveMode,
   onEditingTextChange,
   onSelect,
   onStartEdit,
@@ -437,6 +566,7 @@ function CanvasItemBox({
   owned: boolean;
   editing: boolean;
   editingText: string;
+  moveMode: boolean;
   onEditingTextChange: (value: string) => void;
   onSelect: () => void;
   onStartEdit: () => void;
@@ -458,7 +588,11 @@ function CanvasItemBox({
         event.stopPropagation();
         onStartEdit();
       }}
-      onPointerDown={(event) => onStartDrag(event, 'move')}
+      onPointerDown={(event) => {
+        if (moveMode) {
+          onStartDrag(event, 'move');
+        }
+      }}
     >
       {editing ? (
         <textarea
@@ -477,24 +611,19 @@ function CanvasItemBox({
           autoFocus
         />
       ) : (
-        <ItemContent item={item} />
+        <div className="item-content">
+          <ItemContent item={item} />
+        </div>
       )}
+      {moveMode ? <span className="item-interaction-shield" aria-hidden /> : null}
       <span className="author-tag">{item.ownerName}</span>
       {selected && owned ? (
-        <>
-          <button
-            className="handle resize-handle"
-            type="button"
-            aria-label="Resize item"
-            onPointerDown={(event) => onStartDrag(event, 'resize')}
-          />
-          <button
-            className="handle rotate-handle"
-            type="button"
-            aria-label="Rotate item"
-            onPointerDown={(event) => onStartDrag(event, 'rotate')}
-          />
-        </>
+        <button
+          className="handle transform-handle"
+          type="button"
+          aria-label="Transform item"
+          onPointerDown={(event) => onStartDrag(event, 'transform')}
+        />
       ) : null}
     </article>
   );
@@ -503,10 +632,12 @@ function CanvasItemBox({
 function createDragState(
   event: ReactPointerEvent<HTMLElement>,
   mode: Exclude<DragMode, 'pan'>,
-  item: CanvasItem
+  item: CanvasItem,
+  transformMode?: TransformMode
 ): DragState {
   return {
     mode,
+    transformMode,
     itemId: item.id,
     startScreen: { x: event.clientX, y: event.clientY },
     startFrame: pickFrame(item),
@@ -534,32 +665,67 @@ function frameFromDrag(
     };
   }
 
-  if (drag.mode === 'resize') {
-    return clampFrame({
-      ...startFrame,
-      width: startFrame.width + dx,
-      height: startFrame.height + dy
-    });
+  if (drag.transformMode !== 'rotate') {
+    return resizeFrameFromDelta(
+      startFrame,
+      dx,
+      dy,
+      drag.transformMode === 'aspect-resize'
+    );
   }
 
   const world = screenToWorld(point, viewport);
+  const startWorld = screenToWorld(drag.startScreen, viewport);
   const center = drag.rotationCenter!;
+  const startAngle =
+    (Math.atan2(startWorld.y - center.y, startWorld.x - center.x) * 180) /
+    Math.PI;
   const angle = (Math.atan2(world.y - center.y, world.x - center.x) * 180) / Math.PI;
 
   return {
     ...startFrame,
-    rotation: normalizeRotation(angle + 90)
+    rotation: normalizeRotation(startFrame.rotation + angle - startAngle)
   };
 }
 
-function itemStyle(frame: ItemFrame) {
+function itemStyle(
+  frame: ItemFrame
+): CSSProperties &
+  Record<
+    | '--content-scale'
+    | '--content-font-size'
+    | '--caption-font-size'
+    | '--tiny-font-size'
+    | '--favicon-size',
+    string
+  > {
+  const scale = contentScale(frame);
+
   return {
     left: `${frame.x}px`,
     top: `${frame.y}px`,
     width: `${frame.width}px`,
     height: `${frame.height}px`,
-    transform: `rotate(${frame.rotation}deg)`
+    transform: `rotate(${frame.rotation}deg)`,
+    '--content-scale': scale.toFixed(3),
+    '--content-font-size': `${17 * scale}px`,
+    '--caption-font-size': `${13 * scale}px`,
+    '--tiny-font-size': `${11 * scale}px`,
+    '--favicon-size': `${14 * scale}px`
   };
+}
+
+function contentScale(frame: ItemFrame): number {
+  const raw = Math.min(frame.width / 320, frame.height / 120);
+  return Math.min(3, Math.max(0.75, raw));
+}
+
+function transformModeFromKeys(keys: HeldKeys): TransformMode {
+  if (keys.rotate) {
+    return 'rotate';
+  }
+
+  return keys.aspect ? 'aspect-resize' : 'free-resize';
 }
 
 function pickFrame(item: CanvasItem): ItemFrame {
@@ -604,5 +770,14 @@ function isBlankCanvasTarget(target: EventTarget): boolean {
     target instanceof HTMLElement &&
     (target.classList.contains('canvas-surface') ||
       target.classList.contains('canvas-world'))
+  );
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.isContentEditable)
   );
 }

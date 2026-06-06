@@ -6,19 +6,25 @@ export default defineConfig({
   fullyParallel: true,
   reporter: [['list']],
   use: {
-    baseURL: 'http://127.0.0.1:5173',
+    baseURL: 'http://127.0.0.1:5175',
     trace: 'retain-on-failure',
     viewport: { width: 1680, height: 945 }
   },
   webServer: {
-    command: 'pnpm dev --port 5173',
-    url: 'http://127.0.0.1:5173/canvas/',
-    reuseExistingServer: !process.env.CI
+    command: 'pnpm dev --port 5175',
+    url: 'http://127.0.0.1:5175/canvas/',
+    reuseExistingServer: false,
+    env: {
+      VITE_LINK_PREVIEW_ENDPOINT: ''
+    }
   },
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] }
+      use: {
+        ...devices['Desktop Chrome'],
+        viewport: { width: 1680, height: 945 }
+      }
     }
   ]
 });

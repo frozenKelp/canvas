@@ -56,6 +56,82 @@ describe('CanvasBoard', () => {
 
     await waitFor(() => expect(repository.deleteItem).toHaveBeenCalledWith('owned'));
   });
+
+  it('pans the world when holding M and dragging blank canvas', async () => {
+    const repository = makeRepository();
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    const canvas = screen.getByTestId('canvas-surface');
+    const world = document.querySelector('.canvas-world') as HTMLElement;
+    const before = world.style.transform;
+
+    fireEvent.keyDown(window, { key: 'm' });
+    fireEvent.pointerDown(canvas, {
+      pointerId: 1,
+      button: 0,
+      clientX: 300,
+      clientY: 240
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 1,
+      clientX: 360,
+      clientY: 260
+    });
+    fireEvent.pointerUp(window, { pointerId: 1 });
+    fireEvent.keyUp(window, { key: 'm' });
+
+    expect(world.style.transform).not.toBe(before);
+  });
+
+  it('zooms the world around the cursor when holding M and scrolling', async () => {
+    const repository = makeRepository();
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    const canvas = screen.getByTestId('canvas-surface');
+    const world = document.querySelector('.canvas-world') as HTMLElement;
+
+    fireEvent.keyDown(window, { key: 'm' });
+    fireEvent.wheel(canvas, {
+      deltaY: -160,
+      clientX: 320,
+      clientY: 240
+    });
+    fireEvent.keyUp(window, { key: 'm' });
+
+    expect(world.style.transform).toContain('scale(1.');
+  });
+
+  it('uses one transform handle for owned selected items', async () => {
+    const item = makeItem({ id: 'owned', ownerClientId: 'client-one' });
+    const repository = makeRepository([item]);
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    await screen.findByText('owned note');
+    await userEvent.click(screen.getByText('owned note'));
+
+    expect(screen.getByRole('button', { name: 'Transform item' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Resize item' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rotate item' })).not.toBeInTheDocument();
+  });
+
+  it('shows a static website preview fallback when no preview endpoint is configured', async () => {
+    const item = makeItem({
+      id: 'site',
+      contentText: 'https://example.com/story',
+      primaryUrl: 'https://example.com/story',
+      embedKind: 'website',
+      width: 360,
+      height: 220
+    });
+    const repository = makeRepository([item]);
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    expect(await screen.findByText('preview unavailable')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'open' })).toHaveAttribute(
+      'href',
+      'https://example.com/story'
+    );
+  });
 });
 
 function fireCanvasClick() {

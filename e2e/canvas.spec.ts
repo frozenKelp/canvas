@@ -39,6 +39,43 @@ test('minimal canvas flow creates an embed and removes an owned item', async ({
   await page.screenshot({ path: 'test-results/canvas-desktop.png' });
 
   await page.getByText('hello from e2e').click();
+  await expect(page.getByRole('button', { name: 'Transform item' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Resize item' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Rotate item' })).toHaveCount(0);
+
+  const world = page.locator('.canvas-world');
+  const beforePan = await world.evaluate((node) =>
+    getComputedStyle(node).transform
+  );
+  await page.keyboard.down('m');
+  await expect(page.locator('.canvas-app')).toHaveClass(/is-move-mode/);
+  await world.hover({ position: { x: 950, y: 720 } });
+  await page.mouse.down();
+  await page.mouse.move(1030, 760);
+  await page.mouse.up();
+  await page.keyboard.up('m');
+  await expect
+    .poll(() => world.evaluate((node) => getComputedStyle(node).transform))
+    .not.toBe(beforePan);
+
+  await page.keyboard.down('m');
+  await page.mouse.move(640, 480);
+  await page.mouse.wheel(0, -240);
+  await page.keyboard.up('m');
+  await expect
+    .poll(() => world.evaluate((node) => getComputedStyle(node).transform))
+    .not.toBe(beforePan);
+
+  await page.getByTestId('canvas-surface').click({ position: { x: 520, y: 300 } });
+  await page.getByLabel('New canvas text').fill('https://example.com/story');
+  await page.getByLabel('New canvas text').press('Enter');
+  await expect(page.getByText('preview unavailable')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'open' })).toHaveAttribute(
+    'href',
+    'https://example.com/story'
+  );
+
+  await page.getByText('hello from e2e').click();
   await expect(page.getByRole('button', { name: 'Delete item' })).toBeVisible();
   await page.getByRole('button', { name: 'Delete item' }).click();
   await expect(page.getByText('hello from e2e')).toBeHidden();
