@@ -11,7 +11,7 @@ export default defineConfig({
     viewport: { width: 1680, height: 945 }
   },
   webServer: {
-    command: 'npm run dev -- --port 5173',
+    command: 'pnpm dev --port 5173',
     url: 'http://127.0.0.1:5173/canvas/',
     reuseExistingServer: !process.env.CI
   },

@@ -6,9 +6,11 @@ Click anywhere to create a textbox. Type anything, including links. Press Enter 
 
 ## Local Development
 
+This project uses `pnpm@11.5.2`.
+
 ```powershell
-npm install
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 Without Supabase env vars, the app runs against a local in-memory board. Nothing persists until Supabase is configured.
@@ -39,7 +41,7 @@ No `CNAME` file is included here because the target URL is a project path under 
 ## Checks
 
 ```powershell
-npm test
-npm run lint
-npm run build
+pnpm test
+pnpm lint
+pnpm build
 ```
