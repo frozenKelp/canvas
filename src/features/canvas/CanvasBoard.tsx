@@ -147,6 +147,29 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
     setHeldKeys(next);
   }, []);
 
+  const rememberSavedItem = useCallback((saved: CanvasItem) => {
+    setItems((current) =>
+      applyCanvasEvent(current, { eventType: 'UPDATE', item: saved })
+    );
+    setDirtyIds((current) => {
+      const next = new Set(current);
+      next.delete(saved.id);
+      return next;
+    });
+  }, []);
+
+  const saveItemPatch = useCallback(
+    async (id: string, input: UpdateCanvasItemInput) => {
+      try {
+        const saved = await repository.updateItem(id, input);
+        rememberSavedItem(saved);
+      } catch (caught) {
+        setError(messageFromError(caught));
+      }
+    },
+    [rememberSavedItem, repository]
+  );
+
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (isTypingTarget(event.target)) {
@@ -229,8 +252,36 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
       markDirty(drag.itemId);
     };
 
-    const onPointerUp = () => {
+    const onPointerUp = (event: PointerEvent) => {
+      const drag = dragRef.current;
       dragRef.current = null;
+
+      if (
+        !drag ||
+        drag.mode === 'pan' ||
+        !drag.itemId ||
+        !drag.startFrame
+      ) {
+        return;
+      }
+
+      const nextFrame = frameFromDrag(
+        drag,
+        { x: event.clientX, y: event.clientY },
+        viewportRef.current
+      );
+
+      if (!frameChanged(drag.startFrame, nextFrame)) {
+        return;
+      }
+
+      setItems((current) =>
+        current.map((item) =>
+          item.id === drag.itemId ? { ...item, ...nextFrame } : item
+        )
+      );
+      markDirty(drag.itemId);
+      void saveItemPatch(drag.itemId, { frame: nextFrame });
     };
 
     window.addEventListener('pointermove', onPointerMove);
@@ -240,7 +291,7 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
     };
-  }, [markDirty]);
+  }, [markDirty, saveItemPatch]);
 
   const saveDraft = useCallback(async () => {
     const trimmed = draft?.text.trim();
@@ -270,24 +321,12 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
 
   const saveItem = useCallback(
     async (item: CanvasItem, input: UpdateCanvasItemInput = {}) => {
-      try {
-        const saved = await repository.updateItem(item.id, {
-          frame: pickFrame(item),
-          ...input
-        });
-        setItems((current) =>
-          applyCanvasEvent(current, { eventType: 'UPDATE', item: saved })
-        );
-        setDirtyIds((current) => {
-          const next = new Set(current);
-          next.delete(item.id);
-          return next;
-        });
-      } catch (caught) {
-        setError(messageFromError(caught));
-      }
+      await saveItemPatch(item.id, {
+        frame: pickFrame(item),
+        ...input
+      });
     },
-    [repository]
+    [saveItemPatch]
   );
 
   const saveSelected = useCallback(() => {
@@ -736,6 +775,16 @@ function pickFrame(item: CanvasItem): ItemFrame {
     height: item.height,
     rotation: item.rotation
   };
+}
+
+function frameChanged(left: ItemFrame, right: ItemFrame): boolean {
+  return (
+    left.x !== right.x ||
+    left.y !== right.y ||
+    left.width !== right.width ||
+    left.height !== right.height ||
+    left.rotation !== right.rotation
+  );
 }
 
 function nextZIndex(items: CanvasItem[]): number {

@@ -114,6 +114,37 @@ describe('CanvasBoard', () => {
     expect(screen.queryByRole('button', { name: 'Rotate item' })).not.toBeInTheDocument();
   });
 
+  it('saves a rotated item frame when the transform drag ends', async () => {
+    const item = makeItem({ id: 'owned', ownerClientId: 'client-one' });
+    const repository = makeRepository([item]);
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    await screen.findByText('owned note');
+    await userEvent.click(screen.getByText('owned note'));
+
+    fireEvent.keyDown(window, { key: 'r' });
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Transform item' }), {
+      pointerId: 1,
+      button: 0,
+      clientX: 280,
+      clientY: 180
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 1,
+      clientX: 160,
+      clientY: 300
+    });
+    fireEvent.pointerUp(window, {
+      pointerId: 1,
+      clientX: 160,
+      clientY: 300
+    });
+    fireEvent.keyUp(window, { key: 'r' });
+
+    await waitFor(() => expect(repository.updateItem).toHaveBeenCalled());
+    expect(repository.updated[0].input.frame?.rotation).toBeGreaterThan(0);
+  });
+
   it('shows a static website preview fallback when no preview endpoint is configured', async () => {
     const item = makeItem({
       id: 'site',
