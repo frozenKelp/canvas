@@ -21,6 +21,7 @@ export type CreateCanvasItemInput = {
   draft: ResolvedEmbedDraft;
   frame: ItemFrame;
   zIndex: number;
+  name?: string;
 };
 
 export type UpdateCanvasItemInput = {
@@ -87,7 +88,13 @@ function createSupabaseRepository(
     async createItem(input) {
       const { data, error } = await client
         .from('canvas_items')
-        .insert(itemToInsertRow({ ...input, ...identity }))
+        .insert(
+          itemToInsertRow({
+            ...input,
+            clientId: identity.clientId,
+            name: input.name ?? identity.name
+          })
+        )
         .select('*')
         .single();
 
@@ -162,7 +169,7 @@ function createLocalRepository(
       const item: CanvasItem = {
         id: crypto.randomUUID(),
         ownerClientId: identity.clientId,
-        ownerName: identity.name,
+        ownerName: input.name ?? identity.name,
         contentText: input.draft.contentText,
         primaryUrl: input.draft.primaryUrl,
         embedKind: input.draft.embedKind,

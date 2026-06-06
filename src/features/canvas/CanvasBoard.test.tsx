@@ -1,0 +1,164 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+import type {
+  CanvasRepository,
+  CreateCanvasItemInput,
+  UpdateCanvasItemInput
+} from '../../data/canvasRepository';
+import type { CanvasIdentity } from '../../domain/identity';
+import type { CanvasItem } from '../../domain/realtime';
+import { CanvasBoard } from './CanvasBoard';
+
+const identity: CanvasIdentity = {
+  clientId: 'client-one',
+  name: 'anu',
+  cookiesToWrite: []
+};
+
+describe('CanvasBoard', () => {
+  it('creates a text item by clicking the canvas and pressing Enter', async () => {
+    const repository = makeRepository();
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    fireCanvasClick();
+    await userEvent.type(screen.getByLabelText('New canvas text'), 'hello canvas');
+    fireEvent.keyDown(screen.getByLabelText('New canvas text'), { key: 'Enter' });
+
+    await screen.findByText('hello canvas');
+    expect(repository.created[0].draft.contentText).toBe('hello canvas');
+  });
+
+  it('resolves the first pasted URL as an embed when saved', async () => {
+    const repository = makeRepository();
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    fireCanvasClick();
+    await userEvent.type(
+      screen.getByLabelText('New canvas text'),
+      'look https://site.test/cat.gif'
+    );
+    fireEvent.keyDown(screen.getByLabelText('New canvas text'), { key: 'Enter' });
+
+    const image = await screen.findByAltText('look https://site.test/cat.gif');
+    expect(image).toHaveAttribute('src', 'https://site.test/cat.gif');
+    expect(repository.created[0].draft.embedKind).toBe('image');
+  });
+
+  it('lets the owner delete their own selected item', async () => {
+    const item = makeItem({ id: 'owned', ownerClientId: 'client-one' });
+    const repository = makeRepository([item]);
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    await screen.findByText('owned note');
+    await userEvent.click(screen.getByText('owned note'));
+    await userEvent.click(screen.getByRole('button', { name: 'Delete item' }));
+
+    await waitFor(() => expect(repository.deleteItem).toHaveBeenCalledWith('owned'));
+  });
+});
+
+function fireCanvasClick() {
+  const canvas = screen.getByTestId('canvas-surface');
+  fireEvent.pointerDown(canvas, {
+    pointerId: 1,
+    button: 0,
+    clientX: 180,
+    clientY: 140
+  });
+  fireEvent.pointerUp(canvas, {
+    pointerId: 1,
+    button: 0,
+    clientX: 180,
+    clientY: 140
+  });
+}
+
+function makeRepository(seed: CanvasItem[] = []) {
+  let items = [...seed];
+  const listeners = new Set<(event: Parameters<CanvasRepository['subscribe']>[0] extends (event: infer Event) => void ? Event : never) => void>();
+  const repository: CanvasRepository & {
+    created: CreateCanvasItemInput[];
+    updated: Array<{ id: string; input: UpdateCanvasItemInput }>;
+    deleted: string[];
+  } = {
+    mode: 'local',
+    created: [],
+    updated: [],
+    deleted: [],
+    listItems: vi.fn(async () => items),
+    createItem: vi.fn(async (input) => {
+      repository.created.push(input);
+      const item = makeItem({
+        id: `item-${repository.created.length}`,
+        contentText: input.draft.contentText,
+        primaryUrl: input.draft.primaryUrl,
+        embedKind: input.draft.embedKind,
+        x: input.frame.x,
+        y: input.frame.y,
+        width: input.frame.width,
+        height: input.frame.height,
+        rotation: input.frame.rotation,
+        zIndex: input.zIndex
+      });
+      items = [...items, item];
+      listeners.forEach((listener) =>
+        listener({ eventType: 'INSERT', item })
+      );
+      return item;
+    }),
+    updateItem: vi.fn(async (id, input) => {
+      repository.updated.push({ id, input });
+      const oldItem = items.find((item) => item.id === id)!;
+      const updated = {
+        ...oldItem,
+        ownerName: input.name ?? oldItem.ownerName,
+        contentText: input.draft?.contentText ?? oldItem.contentText,
+        primaryUrl: input.draft?.primaryUrl ?? oldItem.primaryUrl,
+        embedKind: input.draft?.embedKind ?? oldItem.embedKind,
+        x: input.frame?.x ?? oldItem.x,
+        y: input.frame?.y ?? oldItem.y,
+        width: input.frame?.width ?? oldItem.width,
+        height: input.frame?.height ?? oldItem.height,
+        rotation: input.frame?.rotation ?? oldItem.rotation
+      };
+      items = items.map((item) => (item.id === id ? updated : item));
+      listeners.forEach((listener) =>
+        listener({ eventType: 'UPDATE', item: updated })
+      );
+      return updated;
+    }),
+    deleteItem: vi.fn(async (id) => {
+      repository.deleted.push(id);
+      items = items.filter((item) => item.id !== id);
+      listeners.forEach((listener) =>
+        listener({ eventType: 'DELETE', oldId: id })
+      );
+    }),
+    subscribe: vi.fn((listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    })
+  };
+  return repository;
+}
+
+function makeItem(overrides: Partial<CanvasItem> = {}): CanvasItem {
+  return {
+    id: 'item-one',
+    ownerClientId: 'client-one',
+    ownerName: 'anu',
+    contentText: 'owned note',
+    primaryUrl: null,
+    embedKind: 'text',
+    x: 40,
+    y: 60,
+    width: 240,
+    height: 120,
+    rotation: 0,
+    zIndex: 1,
+    createdAt: '2026-06-06T00:00:00.000Z',
+    updatedAt: '2026-06-06T00:00:00.000Z',
+    ...overrides
+  };
+}

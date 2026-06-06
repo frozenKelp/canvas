@@ -32,22 +32,287 @@ textarea {
   font: inherit;
 }
 
-.canvas-shell {
-  min-height: 100%;
+.canvas-app {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
   background:
     linear-gradient(rgba(170, 142, 107, 0.16) 1px, transparent 1px),
     linear-gradient(90deg, rgba(170, 142, 107, 0.16) 1px, transparent 1px),
     #f2e6d7;
   background-size: 28px 28px;
+  cursor: crosshair;
+  user-select: none;
 }
 
-.canvas-shell h1 {
+.canvas-wordmark {
   position: fixed;
   top: 20px;
   left: 24px;
+  z-index: 20;
   margin: 0;
   font-family: "Segoe Print", "Comic Sans MS", cursive;
   font-size: 24px;
   font-weight: 600;
   letter-spacing: 0;
+  pointer-events: none;
+}
+
+.nameplate {
+  position: fixed;
+  top: 18px;
+  right: 24px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  color: rgba(32, 27, 21, 0.72);
+  font-family: "Segoe Print", "Comic Sans MS", cursive;
+  font-size: 15px;
+  background: rgba(246, 237, 224, 0.72);
+  border: 1px solid rgba(95, 75, 52, 0.14);
+  border-radius: 7px;
+  box-shadow: 0 4px 14px rgba(57, 40, 24, 0.08);
+  cursor: text;
+}
+
+.nameplate input {
+  width: 92px;
+  padding: 0;
+  color: #201b15;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font: inherit;
+}
+
+.canvas-surface {
+  position: absolute;
+  inset: 0;
+}
+
+.canvas-world {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+
+.canvas-item,
+.draft-box {
+  position: absolute;
+  transform-origin: center;
+  border-radius: 6px;
+}
+
+.canvas-item {
+  padding: 18px 18px 24px;
+  color: #251e17;
+  background: rgba(255, 250, 242, 0.86);
+  border: 1px solid rgba(102, 80, 51, 0.24);
+  box-shadow: 0 10px 24px rgba(70, 48, 28, 0.14);
+  cursor: grab;
+  overflow: visible;
+}
+
+.canvas-item:active {
+  cursor: grabbing;
+}
+
+.canvas-item.is-selected {
+  outline: 1.5px solid #3b7cff;
+  outline-offset: 0;
+}
+
+.canvas-item p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  line-height: 1.42;
+}
+
+.item-stack {
+  display: grid;
+  gap: 8px;
+  height: 100%;
+}
+
+.item-stack a {
+  color: #315f9a;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.embed-image,
+.embed-video,
+.embed-frame {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(52, 42, 30, 0.08);
+  object-fit: cover;
+}
+
+.embed-image,
+.embed-video {
+  height: 100%;
+  max-height: calc(100% - 28px);
+}
+
+.embed-frame {
+  height: 100%;
+  min-height: 120px;
+}
+
+.author-tag {
+  position: absolute;
+  right: 8px;
+  bottom: 5px;
+  max-width: calc(100% - 16px);
+  color: rgba(55, 43, 29, 0.48);
+  font-size: 11px;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.draft-box,
+.edit-box {
+  resize: none;
+  padding: 16px;
+  color: #24201b;
+  background: rgba(255, 252, 247, 0.88);
+  border: 1.5px solid #3b7cff;
+  border-radius: 3px;
+  box-shadow: 0 0 0 2px rgba(59, 124, 255, 0.1);
+  outline: 0;
+  font-family: "Segoe Print", "Comic Sans MS", cursive;
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+.draft-box::placeholder {
+  color: rgba(32, 27, 21, 0.48);
+}
+
+.edit-box {
+  width: 100%;
+  height: calc(100% - 14px);
+  border-color: rgba(59, 124, 255, 0.58);
+  box-shadow: none;
+}
+
+.handle {
+  position: absolute;
+  padding: 0;
+  background: #f7fbff;
+  border: 2px solid #3b7cff;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.resize-handle {
+  right: -8px;
+  bottom: -8px;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+}
+
+.rotate-handle {
+  top: -38px;
+  left: calc(50% - 10px);
+  width: 20px;
+  height: 20px;
+  cursor: grab;
+}
+
+.rotate-handle::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 18px;
+  width: 2px;
+  height: 20px;
+  background: #3b7cff;
+}
+
+.save-button,
+.delete-button,
+.local-note,
+.error-note {
+  position: fixed;
+  z-index: 30;
+  border-radius: 7px;
+}
+
+.save-button,
+.delete-button {
+  border: 1px solid rgba(67, 51, 31, 0.22);
+  box-shadow: 0 8px 18px rgba(57, 40, 24, 0.13);
+  cursor: pointer;
+}
+
+.save-button {
+  right: 28px;
+  bottom: 26px;
+  padding: 11px 18px;
+  color: #201b15;
+  background: rgba(255, 252, 247, 0.92);
+  font-family: "Segoe Print", "Comic Sans MS", cursive;
+  font-size: 17px;
+}
+
+.delete-button {
+  right: 28px;
+  bottom: 78px;
+  padding: 8px 12px;
+  color: #6b2b23;
+  background: rgba(255, 246, 242, 0.9);
+  font-size: 12px;
+}
+
+.local-note,
+.error-note {
+  left: 24px;
+  bottom: 22px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: rgba(54, 43, 30, 0.58);
+  background: rgba(246, 237, 224, 0.7);
+  border: 1px solid rgba(95, 75, 52, 0.12);
+}
+
+.error-note {
+  color: #783326;
+  background: rgba(255, 241, 235, 0.9);
+}
+
+@media (max-width: 720px) {
+  .canvas-wordmark {
+    top: 14px;
+    left: 16px;
+    font-size: 21px;
+  }
+
+  .nameplate {
+    top: 12px;
+    right: 14px;
+    font-size: 13px;
+  }
+
+  .nameplate input {
+    width: 74px;
+  }
+
+  .draft-box,
+  .edit-box {
+    font-size: 16px;
+  }
 }
