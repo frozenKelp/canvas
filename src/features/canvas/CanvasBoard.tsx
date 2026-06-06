@@ -166,9 +166,10 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
     }
 
     try {
+      const resolvedDraft = resolveEmbedDraft(trimmed);
       const saved = await repository.createItem({
-        draft: resolveEmbedDraft(trimmed),
-        frame: clampFrame(draft.frame),
+        draft: resolvedDraft,
+        frame: frameForResolvedDraft(draft.frame, resolvedDraft.embedKind),
         zIndex: nextZIndex(items),
         name: authorName
       });
@@ -260,7 +261,7 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
   }, [authorName, identity.clientId, items, repository]);
 
   const onSurfacePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget) {
+    if (!isBlankCanvasTarget(event.target)) {
       return;
     }
 
@@ -276,7 +277,7 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
   };
 
   const onSurfacePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.target !== event.currentTarget || dragRef.current) {
+    if (!isBlankCanvasTarget(event.target) || dragRef.current) {
       return;
     }
 
@@ -575,10 +576,33 @@ function nextZIndex(items: CanvasItem[]): number {
   return items.reduce((z, item) => Math.max(z, item.zIndex), 0) + 1;
 }
 
+function frameForResolvedDraft(
+  frame: ItemFrame,
+  embedKind: CanvasItem['embedKind']
+): ItemFrame {
+  if (embedKind === 'text') {
+    return clampFrame(frame);
+  }
+
+  return clampFrame({
+    ...frame,
+    width: Math.max(frame.width, 320),
+    height: Math.max(frame.height, 220)
+  });
+}
+
 function distance(left: Point, right: Point): number {
   return Math.hypot(left.x - right.x, left.y - right.y);
 }
 
 function messageFromError(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went sideways';
+}
+
+function isBlankCanvasTarget(target: EventTarget): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.classList.contains('canvas-surface') ||
+      target.classList.contains('canvas-world'))
+  );
 }
