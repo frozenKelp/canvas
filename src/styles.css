@@ -102,8 +102,7 @@ textarea {
   transform-origin: 0 0;
 }
 
-.canvas-item,
-.draft-box {
+.canvas-item {
   position: absolute;
   transform-origin: center;
   border-radius: 6px;
@@ -282,31 +281,30 @@ textarea {
   pointer-events: none;
 }
 
-.draft-box,
-.edit-box {
-  resize: none;
-  padding: 12px;
-  color: #24201b;
-  background: rgba(255, 252, 247, 0.88);
-  border: 1.5px solid #3b7cff;
-  border-radius: 3px;
-  box-shadow: 0 0 0 2px rgba(59, 124, 255, 0.1);
-  outline: 0;
-  font-family: "Segoe Print", "Comic Sans MS", cursive;
-  font-size: 18px;
-  line-height: 1.4;
-}
-
-.draft-box::placeholder {
-  color: rgba(32, 27, 21, 0.48);
-}
-
-.edit-box {
+.text-note-editor {
   width: 100%;
-  height: calc(100% - 14px);
-  border-color: rgba(59, 124, 255, 0.58);
+  height: 100%;
+  margin: 0;
+  padding: 0 4px;
+  resize: none;
+  overflow: hidden;
+  color: #251e17;
+  background: transparent;
+  border: 0;
   box-shadow: none;
-  background: rgba(255, 252, 247, 0.94);
+  outline: 0;
+  caret-color: #2f63d8;
+  font: inherit;
+  font-size: var(--content-font-size);
+  line-height: 1.42;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  align-content: center;
+}
+
+.text-note-editor::placeholder {
+  color: rgba(32, 27, 21, 0.5);
 }
 
 .handle {
@@ -408,8 +406,7 @@ textarea {
     width: 74px;
   }
 
-  .draft-box,
-  .edit-box {
-    font-size: 16px;
+  .text-note-editor {
+    font-size: var(--content-font-size);
   }
 }

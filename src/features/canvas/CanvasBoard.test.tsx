@@ -92,6 +92,59 @@ describe('CanvasBoard', () => {
     expect(screen.queryByText('owned note')).not.toBeInTheDocument();
   });
 
+  it('removes an empty new draft when it loses focus', async () => {
+    const repository = makeRepository();
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    fireCanvasClick();
+    fireEvent.blur(screen.getByLabelText('New canvas text'));
+
+    await waitFor(() =>
+      expect(screen.queryByLabelText('New canvas text')).not.toBeInTheDocument()
+    );
+    expect(repository.createItem).not.toHaveBeenCalled();
+  });
+
+  it('saves an active text edit before starting a new draft', async () => {
+    const item = makeItem({ id: 'owned', ownerClientId: 'client-one' });
+    const repository = makeRepository([item]);
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    await screen.findByText('owned note');
+    await userEvent.dblClick(screen.getByText('owned note'));
+    await userEvent.clear(screen.getByLabelText('Edit canvas text'));
+    await userEvent.type(screen.getByLabelText('Edit canvas text'), 'changed note');
+
+    fireCanvasClick(420, 260);
+
+    await waitFor(() =>
+      expect(repository.updateItem).toHaveBeenCalledWith(
+        'owned',
+        expect.objectContaining({
+          draft: expect.objectContaining({ contentText: 'changed note' })
+        })
+      )
+    );
+    expect(screen.queryByLabelText('Edit canvas text')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('New canvas text')).toBeInTheDocument();
+  });
+
+  it('deletes an emptied text edit before starting a new draft', async () => {
+    const item = makeItem({ id: 'owned', ownerClientId: 'client-one' });
+    const repository = makeRepository([item]);
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    await screen.findByText('owned note');
+    await userEvent.dblClick(screen.getByText('owned note'));
+    await userEvent.clear(screen.getByLabelText('Edit canvas text'));
+
+    fireCanvasClick(420, 260);
+
+    await waitFor(() => expect(repository.deleteItem).toHaveBeenCalledWith('owned'));
+    expect(screen.queryByLabelText('Edit canvas text')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('New canvas text')).toBeInTheDocument();
+  });
+
   it('centers display text inside text-only items', async () => {
     const item = makeItem({ id: 'owned', ownerClientId: 'client-one' });
     const repository = makeRepository([item]);
@@ -100,6 +153,32 @@ describe('CanvasBoard', () => {
     const text = await screen.findByText('owned note');
 
     expect(text).toHaveClass('text-note');
+  });
+
+  it('renders new draft text inside the final item shell', async () => {
+    const repository = makeRepository();
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    fireCanvasClick();
+
+    const draftText = screen.getByLabelText('New canvas text');
+    expect(draftText).toHaveClass('text-note-editor');
+    expect(draftText.closest('.canvas-item')).toHaveClass('is-selected');
+    expect(draftText.closest('.item-content')).not.toBeNull();
+  });
+
+  it('renders text edits with the final text-note editor style', async () => {
+    const item = makeItem({ id: 'owned', ownerClientId: 'client-one' });
+    const repository = makeRepository([item]);
+    render(<CanvasBoard identity={identity} repository={repository} />);
+
+    await screen.findByText('owned note');
+    await userEvent.dblClick(screen.getByText('owned note'));
+
+    const editor = screen.getByLabelText('Edit canvas text');
+    expect(editor).toHaveClass('text-note-editor');
+    expect(editor.closest('.canvas-item')).toHaveClass('is-editing');
+    expect(editor.closest('.item-content')).not.toBeNull();
   });
 
   it('pans the world when holding M and dragging blank canvas', async () => {
@@ -283,19 +362,19 @@ describe('CanvasBoard', () => {
   });
 });
 
-function fireCanvasClick() {
+function fireCanvasClick(clientX = 180, clientY = 140) {
   const canvas = screen.getByTestId('canvas-surface');
   fireEvent.pointerDown(canvas, {
     pointerId: 1,
     button: 0,
-    clientX: 180,
-    clientY: 140
+    clientX,
+    clientY
   });
   fireEvent.pointerUp(canvas, {
     pointerId: 1,
     button: 0,
-    clientX: 180,
-    clientY: 140
+    clientX,
+    clientY
   });
 }
 

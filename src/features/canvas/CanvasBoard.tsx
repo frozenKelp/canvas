@@ -96,6 +96,7 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
   const heldKeysRef = useRef(heldKeys);
   const clickStartRef = useRef<Point | null>(null);
   const draftRef = useRef<HTMLTextAreaElement | null>(null);
+  const finishingEditIdRef = useRef<string | null>(null);
 
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedId) ?? null,
@@ -357,21 +358,57 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
 
   const finishTextEdit = useCallback(
     async (item: CanvasItem) => {
+      if (finishingEditIdRef.current === item.id) {
+        return;
+      }
+
+      finishingEditIdRef.current = item.id;
       const trimmed = editingText.trim();
-      setEditingId(null);
+      setEditingId((current) => (current === item.id ? null : current));
 
-      if (!trimmed) {
-        await deleteItem(item);
-        return;
+      try {
+        if (!trimmed) {
+          await deleteItem(item);
+          return;
+        }
+
+        if (trimmed === item.contentText) {
+          return;
+        }
+
+        await saveItem(item, { draft: resolveEmbedDraft(trimmed) });
+      } finally {
+        finishingEditIdRef.current = null;
       }
-
-      if (trimmed === item.contentText) {
-        return;
-      }
-
-      await saveItem(item, { draft: resolveEmbedDraft(trimmed) });
     },
     [deleteItem, editingText, saveItem]
+  );
+
+  const startDraftAt = useCallback(
+    async (screenPoint: Point) => {
+      const activeEdit = editingId
+        ? items.find((item) => item.id === editingId) ?? null
+        : null;
+      const startViewport = viewportRef.current;
+
+      if (activeEdit) {
+        await finishTextEdit(activeEdit);
+      }
+
+      const world = screenToWorld(screenPoint, startViewport);
+      setSelectedId(null);
+      setDraft({
+        text: '',
+        frame: {
+          x: world.x,
+          y: world.y,
+          width: DEFAULT_BOX.width,
+          height: DEFAULT_BOX.height,
+          rotation: 0
+        }
+      });
+    },
+    [editingId, finishTextEdit, items]
   );
 
   const commitName = useCallback(() => {
@@ -432,18 +469,7 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
       return;
     }
 
-    const world = screenToWorld({ x: event.clientX, y: event.clientY }, viewport);
-    setSelectedId(null);
-    setDraft({
-      text: '',
-      frame: {
-        x: world.x,
-        y: world.y,
-        width: DEFAULT_BOX.width,
-        height: DEFAULT_BOX.height,
-        rotation: 0
-      }
-    });
+    void startDraftAt({ x: event.clientX, y: event.clientY });
   };
 
   const onSurfaceWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
@@ -535,6 +561,7 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
               }
               onStartEdit={() => {
                 if (item.ownerClientId === identity.clientId) {
+                  setDraft(null);
                   setSelectedId(item.id);
                   setEditingId(item.id);
                   setEditingText(item.contentText);
@@ -560,23 +587,27 @@ export function CanvasBoard({ identity, repository }: CanvasBoardProps) {
           ))}
 
           {draft ? (
-            <textarea
-              ref={draftRef}
-              className="draft-box"
-              aria-label="New canvas text"
-              placeholder={EMPTY_DRAFT_TEXT}
-              value={draft.text}
+            <article
+              className="canvas-item is-selected is-drafting"
               style={itemStyle(draft.frame)}
-              onChange={(event) =>
-                setDraft({ ...draft, text: event.target.value })
-              }
-              onKeyDown={onDraftKeyDown}
-              onBlur={() => {
-                if (draft.text.trim()) {
-                  void saveDraft();
-                }
-              }}
-            />
+            >
+              <div className="item-content">
+                <textarea
+                  ref={draftRef}
+                  className="text-note-editor draft-box"
+                  aria-label="New canvas text"
+                  placeholder={EMPTY_DRAFT_TEXT}
+                  value={draft.text}
+                  spellCheck={false}
+                  onChange={(event) =>
+                    setDraft({ ...draft, text: event.target.value })
+                  }
+                  onKeyDown={onDraftKeyDown}
+                  onBlur={() => void saveDraft()}
+                />
+              </div>
+              <span className="author-tag">{authorName}</span>
+            </article>
           ) : null}
         </div>
       </div>
@@ -631,7 +662,9 @@ function CanvasItemBox({
 }) {
   return (
     <article
-      className={`canvas-item ${selected ? 'is-selected' : ''}`}
+      className={`canvas-item ${selected ? 'is-selected' : ''} ${
+        editing ? 'is-editing' : ''
+      }`}
       style={itemStyle(item)}
       onClick={(event) => {
         event.stopPropagation();
@@ -649,27 +682,28 @@ function CanvasItemBox({
         }
       }}
     >
-      {editing ? (
-        <textarea
-          className="edit-box"
-          aria-label="Edit canvas text"
-          value={editingText}
-          onPointerDown={(event) => event.stopPropagation()}
-          onChange={(event) => onEditingTextChange(event.target.value)}
-          onBlur={onFinishEdit}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              onFinishEdit();
-            }
-          }}
-          autoFocus
-        />
-      ) : (
-        <div className="item-content">
+      <div className="item-content">
+        {editing ? (
+          <textarea
+            className="text-note-editor edit-box"
+            aria-label="Edit canvas text"
+            value={editingText}
+            spellCheck={false}
+            onPointerDown={(event) => event.stopPropagation()}
+            onChange={(event) => onEditingTextChange(event.target.value)}
+            onBlur={onFinishEdit}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                onFinishEdit();
+              }
+            }}
+            autoFocus
+          />
+        ) : (
           <ItemContent item={item} />
-        </div>
-      )}
+        )}
+      </div>
       {moveMode ? <span className="item-interaction-shield" aria-hidden /> : null}
       <span className="author-tag">{item.ownerName}</span>
       {showDelete ? (
