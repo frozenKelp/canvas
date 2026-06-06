@@ -15,6 +15,8 @@ export default defineConfig({
     url: 'http://127.0.0.1:5175/canvas/',
     reuseExistingServer: false,
     env: {
+      VITE_SUPABASE_URL: '',
+      VITE_SUPABASE_PUBLISHABLE_KEY: '',
       VITE_LINK_PREVIEW_ENDPOINT: ''
     }
   },
