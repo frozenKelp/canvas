@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createCanvasRepository } from './data/canvasRepository';
+import { productionHttpsRedirectUrl } from './domain/deployment';
 import { buildIdentity, type CanvasIdentity } from './domain/identity';
 import { CanvasBoard } from './features/canvas/CanvasBoard';
 
@@ -15,6 +16,14 @@ export function App() {
     () => createCanvasRepository(identity),
     [identity]
   );
+
+  useEffect(() => {
+    const redirectUrl = productionHttpsRedirectUrl(window.location);
+
+    if (redirectUrl) {
+      window.location.replace(redirectUrl);
+    }
+  }, []);
 
   return <CanvasBoard identity={identity} repository={repository} />;
 }

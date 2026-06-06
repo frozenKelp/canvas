@@ -29,6 +29,13 @@ describe('embed resolution', () => {
     ).toBe('image');
   });
 
+  it('treats Tenor share GIF URLs as preview pages', () => {
+    const draft = resolveEmbedDraft('https://tenor.com/bPeMW.gif');
+
+    expect(draft.embedKind).toBe('website');
+    expect(draft.embedUrl).toBe('https://tenor.com/bPeMW.gif');
+  });
+
   it('recognizes direct video URLs', () => {
     const draft = resolveEmbedDraft('https://cdn.test/clip.mp4');
 

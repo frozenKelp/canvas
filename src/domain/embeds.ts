@@ -25,6 +25,7 @@ const IMAGE_EXTENSIONS = new Set([
   '.webp'
 ]);
 const VIDEO_EXTENSIONS = new Set(['.mp4', '.ogg', '.ogv', '.webm', '.mov']);
+const MEDIA_SHARE_PAGE_HOSTS = new Set(['tenor.com']);
 
 export function resolveEmbedDraft(text: string): ResolvedEmbedDraft {
   const firstUrl = findFirstUrl(text);
@@ -52,7 +53,7 @@ export function resolveEmbedDraft(text: string): ResolvedEmbedDraft {
 
   const extension = getPathExtension(parsed.pathname);
 
-  if (IMAGE_EXTENSIONS.has(extension)) {
+  if (!isMediaSharePage(parsed.hostname) && IMAGE_EXTENSIONS.has(extension)) {
     return {
       contentText: text,
       primaryUrl: firstUrl,
@@ -61,7 +62,7 @@ export function resolveEmbedDraft(text: string): ResolvedEmbedDraft {
     };
   }
 
-  if (VIDEO_EXTENSIONS.has(extension)) {
+  if (!isMediaSharePage(parsed.hostname) && VIDEO_EXTENSIONS.has(extension)) {
     return {
       contentText: text,
       primaryUrl: firstUrl,
@@ -131,6 +132,10 @@ function matchPathPart(pathname: string, marker: string): string | null {
 function getPathExtension(pathname: string): string {
   const lastDot = pathname.lastIndexOf('.');
   return lastDot >= 0 ? pathname.slice(lastDot).toLowerCase() : '';
+}
+
+function isMediaSharePage(hostname: string): boolean {
+  return MEDIA_SHARE_PAGE_HOSTS.has(hostname.toLowerCase().replace(/^www\./u, ''));
 }
 
 function isDigits(value: string): boolean {
